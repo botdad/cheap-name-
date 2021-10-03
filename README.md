@@ -1,10 +1,20 @@
-go build
+`go build`
 
-then
+then `./cheap-name -whatever` 
+
+or `docker build . -t cheap-name`
+
+then `docker run --rm cheap-name -whatever`
 
 ```
-./cheap-name -selector 'tuple(address,address)'
-this is good enough - can do ctrl-c now use this as your signature abdlmhjnfgkice(tuple(address,address)) found after 1m8.910767404s 0x0000003f
+Usage of ./cheap-name:
+  -bytes string
+        hex bytes to match (default "00000000")
+  -chars int
+        number of random characters to use (default 5)
+  -prefix string
+        optional prefix before random string
+  -selector string
+        selector given
 ```
 
-or whatever you need as selector but without the function name,

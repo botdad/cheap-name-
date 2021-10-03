@@ -2,59 +2,39 @@ package main
 
 import (
 	"bytes"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
 var (
-	signature        = flag.String("selector", "", "selector given")
-	mustBeZeros      = flag.Bool("all_zeros", false, "force search for zeros")
-	found       bool = false
+	signature   = flag.String("selector", "", "selector given")
+	prefix      = flag.String("prefix", "", "optional prefix before random string")
+	charCount   = flag.Int("chars", 5, "number of random characters to use")
+	bytesString = flag.String("bytes", "00000000", "hex bytes to match")
 )
 
-// Perm calls f with each permutation of a.
-func Perm(a []rune, f func([]rune)) {
-	perm(a, f, 0)
-}
-
-// Permute the values at index i to len(a)-1.
-func perm(a []rune, f func([]rune), i int) {
-	if i > len(a) {
-		f(a)
-		return
+func IntPow(a, b int) int {
+	p := 1
+	for b > 0 {
+		if b&1 != 0 {
+			p *= a
+		}
+		b >>= 1
+		a *= a
 	}
-	if found {
-		return
-	}
-	perm(a, f, i+1)
-	for j := i + 1; j < len(a); j++ {
-		a[i], a[j] = a[j], a[i]
-		perm(a, f, i+1)
-		a[i], a[j] = a[j], a[i]
-	}
-}
-
-func permutate(input string, parent string) []string {
-	if len(input) == 1 {
-		return []string{parent + input}
-	}
-
-	var permutations []string
-	for i := 0; i < len(input); i++ {
-		restOfInput := input[0:i] + input[i+1:]
-		curChar := input[i : i+1]
-		permutations = append(permutations, permutate(restOfInput, parent+curChar)...)
-	}
-	return permutations
+	return p
 }
 
 func main() {
+	const chars = "abcdefghijklmnopqrstuvwxyz_0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	cl := len(chars)
+
 	flag.Parse()
 
 	if *signature == "" {
@@ -62,47 +42,45 @@ func main() {
 	}
 
 	sig := *signature
+	pfx := *prefix
+	numSearchChars := *charCount
 
-	atMost := []byte{0x00, 0x00, 0x00, 0xff}
-	wanted := []byte{0x00, 0x00, 0x00, 0x00}
+	maxPerms := IntPow(cl, numSearchChars)
+	chopped := maxPerms / 4
+
+	wanted, err := hex.DecodeString(*bytesString)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("Attempting to find a match for " + pfx + "*****(" + sig + ")")
+	fmt.Println("Kicking off 4 threads")
+
 	started := time.Now()
-	p := *mustBeZeros
-	t0 := time.Now()
-	fmt.Println("generating all the permutations ")
-
-	all := permutate("abcdefghijk", "")
-	fmt.Println("took", time.Since(t0), "to generate all permutations")
-
-	length := len(all)
-	chopped := length / 4
-
-	fmt.Println("kicking off 4 threads")
-
 	for i := 0; i < 4; i++ {
-		fmt.Println("range", i*chopped, i*chopped+chopped)
-		subrange := all[i*chopped : i*chopped+chopped]
+		jmin := i * chopped
+		jmax := i*chopped + chopped
+		fmt.Println("Thread", i, "range", jmin, jmax)
 		go func() {
-			for _, a := range subrange {
-				combined := string(a) + "(" + sig + ")"
+			for j := jmin; j < jmax; j++ {
+				a := make([]byte, numSearchChars)
+				for k := 0; k < numSearchChars; k++ {
+					a[k] = chars[j/IntPow(cl, k)%cl]
+				}
+
+				combined := pfx + string(a) + "(" + sig + ")"
+
 				b := crypto.Keccak256([]byte(combined))[:4]
 
 				if bytes.Equal(wanted, b) {
-					fmt.Println("FOUND exactly all zeros after",
-						time.Since(started), "signature should be", combined,
-					)
+					fmt.Println("FOUND exact match after",
+						time.Since(started))
+					fmt.Println(combined, "should match", *bytesString)
 					os.Exit(0)
 					return
 				}
-
-				if p == false && bytes.Compare(b, atMost) == -1 {
-					fmt.Println("this is good enough - can do ctrl-c now",
-						"use this as your signature",
-						combined, "found after",
-						time.Since(started),
-						hexutil.Encode(b),
-					)
-				}
 			}
+			fmt.Println("Thread completed without match")
 		}()
 	}
 
